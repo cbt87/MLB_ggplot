@@ -1,0 +1,218 @@
+---
+title: "Analyzing hits from the 2019 MLB season"
+author: "Casey"
+date: "12/16/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+# Loading libraries 
+
+```{r, message=FALSE}
+library(tidyverse)
+library(plotly)
+```
+
+# Reading the datasets from https://baseballsavant.mlb.com/
+
+```{r, message=FALSE, warning=FALSE}
+homeruns <- read_csv("2019_homeruns_batters.csv")
+triples <- read_csv("2019_triples_batters.csv")
+doubles <- read_csv("2019_doubles_batters.csv")
+singles <- read_csv("2019_singles_batters.csv")
+
+```
+
+# Creating a dataset of all hits from the 2019 season. 
+
+It is possible to download a csv from the website that includes all hits from a season. However, the site caps the number of rows in a csv at 40,000, which is 2307 less than the number of hits in 2019. In order to be as accurate as possible, I had to download csvs of each type of hit separately, then combine them using rbind().
+
+```{r}
+all_hits <- rbind(homeruns, triples, doubles, singles)
+```
+
+# Scatterplot of 2019 homeruns showing the correlation of the launch angle and speed of the ball when it was hit.
+
+I increased the transparency of the points to show where most of the points clustered. According to this visualization, the highest concentration of homeruns were hit between 100 and 105 miles per hour and at a 25-30 degree launch angle. 
+
+```{r}
+ggplot(homeruns, aes(x=launch_speed, y = launch_angle))+
+  geom_point(alpha=.1)
+```
+
+# Added a third dimension to the chart above: the speed of the pitch.
+
+
+```{r}
+ggplot(homeruns, aes(x=launch_speed, y = launch_angle, color = release_speed))+
+  geom_point(alpha=.2)
+```
+
+# The same plot as above, but with all hits in 2019 instead of only homeruns.
+
+There are over 40k points, so I had to increase the transparency even more to show where the concentration of hits lie. 
+
+```{r}
+ggplot(all_hits, 
+         aes(x = launch_speed, y = launch_angle))+
+  geom_point(alpha=.03)
+```
+
+# Added another variable to the color channel: a description of the trajectory of the ball.
+
+Unsurprisingly, ground balls have a low launch angle (most below 0 degrees) and a wide spread of speeds that resulted in hits. Fly balls have a high launch angle. The gap between the two clusters of fly ball hits between 75 and 80 mph is unexplained and requires more research. 
+
+```{r}
+
+  ggplot(all_hits, 
+         aes(x = launch_speed, y = launch_angle, color = bb_type, shape = events))+
+  geom_point(alpha=.4)
+  
+```
+
+# For this graph, I set color equal to the events field, which describes whether the hit was a single, double, triple, or homerun I used plotly so I could turn off various hits types and zoom in. 
+
+There is another field in the data set called "des" that is an indepth description of everything that happened during the play. I added that field to the tooltip hover over.
+
+```{r}
+ggplotly(
+  ggplot(all_hits, 
+         aes(x = launch_speed, y = launch_angle, color = events,
+  text = des))+
+  geom_point(alpha=.1),
+  tooltip = "text"
+  )
+```
+
+# facet wrap by type of pitch
+
+```{r}
+ggplot(all_hits, aes(x = launch_speed, y = launch_angle, color = events))+
+  geom_point(alpha=.1)+
+  facet_wrap(vars(pitch_name))
+```
+# changing the hit distance variable and release speed variables, which should be continuous integers but are the character type, into integers.
+
+```{r, message = FALSE}
+all_hits_2019 <- mutate(all_hits, hit_distance_sc = as.integer(hit_distance_sc))
+```
+
+```{r, message = FALSE}
+all_hits_2019 <- mutate(all_hits_2019, release_speed = as.integer(release_speed))
+```
+
+# Hit distance and launch angle
+
+
+```{r}
+ggplot(all_hits_2019, aes(y=launch_angle, x= hit_distance_sc, color = launch_speed))+
+  geom_point(alpha=.05)+
+  scale_colour_gradient(low = "blue", high = "red")
+```
+
+# There is no discernable positive or negative correlation between release speed and hit distance. The faceted graph below shows that all types of hits are hit off slow pitches and fast pitches. 
+
+
+```{r}
+ggplot(all_hits_2019, aes(x = hit_distance_sc, y = release_speed, color = launch_speed))+
+  geom_point(alpha = .1)+
+  scale_colour_gradient(low = "blue", high = "red")+
+  facet_wrap(vars(events))
+```
+
+
+
+```{r}
+ggplotly(
+  ggplot(all_hits_2019, aes(y=launch_angle, x= hit_distance_sc, color = launch_speed))+
+  geom_point(alpha=.05)+
+  facet_wrap(vars(events))+
+    scale_colour_gradient(low = "blue", high = "red")
+)
+```
+
+# creating a filter for a specific player
+
+```{r}
+rendon = filter(all_hits, player_name == "Anthony Rendon")
+```
+
+# As an example, this plotly graph visualizes all of Anthony Rendon's hits in 2019
+
+```{r}
+ggplotly(
+  ggplot(rendon, 
+         aes(x = launch_speed, y = launch_angle, color = events,
+  text = des))+
+  geom_point(alpha=.5),
+  tooltip = "text"
+  )
+```
+
+
+
+# the final step in this process was to create a Shiny app
+# shiny code for plotly-enabled app
+
+
+ library(tidyverse)
+ library(shiny)
+ library(plotly)
+
+
+
+# Defining the UI
+# the sliderInput allows the user to decide how big the sample size from the dataset is going to be. If the dataset is the full 42,000 rows, it is quite slow.
+
+ ui <- fluidPage(
+     titlePanel("MLB Hits 2019"),
+
+     sidebarLayout(
+         sidebarPanel(
+             textInput(inputId = "name", label = "Player Name:", value = "enter a player name"),
+             sliderInput('sampleSize', 'Sample Size', min = 1, max = nrow(all_hits),
+                         value = 1000, step = 500, round = 0)
+         ),
+
+         mainPanel(
+             plotlyOutput(outputId = "plot1")
+         )
+     )
+ )
+
+# the if, else statement stipulates that if the text input field contains a string that is in the "player_name" field, then the dataset will be filtered to only that player's name. Otherwise, the full dataset is displayed.
+
+ server <- function(input, output) {
+
+     dataset <- reactive({
+         all_hits[sample(nrow(all_hits), input$sampleSize),]
+     })
+
+     output$plot1 <- renderPlotly({
+
+         if (input$name %in% unique(all_hits$player_name)) {
+             pd <- filter(dataset(),
+                          player_name == input$name)
+         } else {
+             pd <- dataset()
+         }
+
+             ggplot(pd,
+                    aes(x = launch_speed, y = launch_angle, color = events,
+                        text = des
+                    ))+
+                 geom_point(alpha=.4)
+
+
+     }
+     )
+ }
+
+
+# Run the application
+shinyApp(ui = ui, server = server)
+```
+
